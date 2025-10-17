@@ -1,8 +1,9 @@
 import streamlit as st
-from docx2pdf import convert
 import os
 import tempfile
 from pathlib import Path
+import subprocess
+import platform
 
 # Set page configuration
 st.set_page_config(
@@ -36,6 +37,72 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
+
+def convert_docx_to_pdf(docx_path, pdf_path):
+    """
+    Convert DOCX to PDF using LibreOffice (cross-platform)
+    Works on Windows, Linux, and macOS
+    """
+    try:
+        # Determine the LibreOffice command based on the platform
+        system = platform.system()
+        
+        if system == "Windows":
+            # Try common Windows paths for LibreOffice or use docx2pdf as fallback
+            try:
+                from docx2pdf import convert
+                convert(docx_path, pdf_path)
+                return True
+            except ImportError:
+                # If docx2pdf is not available, try LibreOffice
+                libreoffice_paths = [
+                    r"C:\Program Files\LibreOffice\program\soffice.exe",
+                    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+                ]
+                soffice_path = None
+                for path in libreoffice_paths:
+                    if os.path.exists(path):
+                        soffice_path = path
+                        break
+                
+                if not soffice_path:
+                    raise Exception("LibreOffice not found. Please install LibreOffice or ensure docx2pdf is installed.")
+        else:
+            # Linux/macOS - LibreOffice is typically in PATH
+            soffice_path = "libreoffice"
+        
+        # Use LibreOffice for conversion
+        temp_dir = os.path.dirname(pdf_path)
+        
+        # Run LibreOffice in headless mode to convert
+        cmd = [
+            soffice_path,
+            '--headless',
+            '--convert-to',
+            'pdf',
+            '--outdir',
+            temp_dir,
+            docx_path
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        
+        if result.returncode != 0:
+            raise Exception(f"Conversion failed: {result.stderr}")
+        
+        # LibreOffice creates the PDF with the same name as input
+        generated_pdf = os.path.join(temp_dir, Path(docx_path).stem + ".pdf")
+        
+        # Rename if necessary
+        if generated_pdf != pdf_path:
+            os.rename(generated_pdf, pdf_path)
+        
+        return True
+        
+    except subprocess.TimeoutExpired:
+        raise Exception("Conversion timed out. Please try with a smaller file.")
+    except Exception as e:
+        raise Exception(f"Conversion error: {str(e)}")
 
 # App header
 st.title("📄 DOCX to PDF Converter")
@@ -78,7 +145,7 @@ if uploaded_file is not None:
                     pdf_path = os.path.join(temp_dir, pdf_filename)
                     
                     # Convert DOCX to PDF
-                    convert(docx_path, pdf_path)
+                    convert_docx_to_pdf(docx_path, pdf_path)
                     
                     # Read the converted PDF
                     with open(pdf_path, 'rb') as pdf_file:
